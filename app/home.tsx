@@ -33,7 +33,7 @@ export default function Home() {
           <Text style={styles.tabTextActive}>Início</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.tabButton} onPress={() => router.push("/parking")}>
+        <TouchableOpacity style={styles.tabButton} onPress={() => router.push("/park")}>
           <Ionicons name="bicycle" size={28} color="#aaa" />
           <Text style={styles.tabText}>Estacionar</Text>
         </TouchableOpacity>

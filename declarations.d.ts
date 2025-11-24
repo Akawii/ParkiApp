@@ -4,3 +4,4 @@ declare module "expo-nfc" {
   export = NFC;
   export as namespace NFC;
 }
+declare module 'react-native-base64';

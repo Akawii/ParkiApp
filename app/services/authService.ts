@@ -4,36 +4,36 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut,
-  User
+  User,
 } from "firebase/auth";
 import {
   collection,
   doc,
-  getDoc, // <--- NOVO
+  getDoc,
   getDocs,
   query,
   serverTimestamp,
   setDoc,
-  where
+  where,
 } from "firebase/firestore";
 import "react-native-get-random-values";
 import uuid from "react-native-uuid";
 import { auth, db } from "../firebase";
 
-// NOVO: Realtime Database
+// REALTIME DATABASE — para o ESP32 saber quem está logado
 import { getDatabase, ref, remove, set } from "firebase/database";
 const rtdb = getDatabase();
 
-// FUNÇÃO PARA ATUALIZAR USER ATIVO NO RTDB
+// ATIVA/DESATIVA O USER NO REALTIME DATABASE
 const setActiveUser = async (uid: string, nfcID: string) => {
   try {
     await set(ref(rtdb, `activeSessions/${uid}`), {
       nfcID,
-      lastSeen: Date.now()
+      lastSeen: Date.now(),
     });
-    console.log("User ativo no Realtime DB:", uid);
+    console.log("User ativo no RTDB:", uid);
   } catch (e) {
-    console.log("Erro ao atualizar RTDB:", e);
+    console.log("Erro ao ativar no RTDB:", e);
   }
 };
 
@@ -42,9 +42,12 @@ const clearActiveUser = async (uid: string) => {
   try {
     await remove(ref(rtdb, `activeSessions/${uid}`));
     console.log("User removido do RTDB");
-  } catch (e) {}
+  } catch (e) {
+    console.log("Erro ao limpar RTDB:", e);
+  }
 };
 
+// REGISTER
 export const registerUser = async (
   username: string,
   firstName: string,
@@ -53,6 +56,7 @@ export const registerUser = async (
   password: string
 ) => {
   try {
+    // Verifica se o username já existe
     const usernameQuery = await getDocs(
       query(collection(db, "users"), where("username", "==", username.trim().toLowerCase()))
     );
@@ -60,11 +64,11 @@ export const registerUser = async (
       return { success: false, error: "Este username já está em uso" };
     }
 
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
     const user = userCredential.user;
-
     const nfcID = uuid.v4() as string;
 
+    // Avatar automático único
     const avatarUrl = `https://api.dicebear.com/7.x/avataaars/png?seed=${username.trim().toLowerCase()}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf`;
 
     await setDoc(doc(db, "users", user.uid), {
@@ -77,7 +81,7 @@ export const registerUser = async (
       createdAt: serverTimestamp(),
     });
 
-    // ATIVA O USER NO REALTIME DATABASE
+    // Ativa no Realtime Database (para o ESP32)
     await setActiveUser(user.uid, nfcID);
 
     return { success: true, nfcID };
@@ -90,52 +94,49 @@ export const registerUser = async (
   }
 };
 
+// LOGIN (com username ou email)
 export const loginUser = async (identifier: string, password: string) => {
   try {
-    let emailToUse = identifier;
+    let emailToUse = identifier.trim();
 
+    // Se não for email → procura pelo username
     if (!identifier.includes("@")) {
-      const usernameQuery = await getDocs(
+      const q = await getDocs(
         query(collection(db, "users"), where("username", "==", identifier.toLowerCase().trim()))
       );
-      if (usernameQuery.empty) {
-        return { success: false, error: "Username ou senha incorretos" };
-      }
-      emailToUse = usernameQuery.docs[0].data().email;
+      if (q.empty) return { success: false, error: "Username ou senha incorretos" };
+      emailToUse = q.docs[0].data().email;
     }
 
     await signInWithEmailAndPassword(auth, emailToUse, password);
 
-    // PEGA O nfcID DO FIRESTORE E ATIVA NO RTDB
+    // Pega o nfcID e ativa no Realtime Database
     const userDoc = await getDoc(doc(db, "users", auth.currentUser!.uid));
     if (userDoc.exists()) {
-      const nfcID = userDoc.data().nfcID;
-      await setActiveUser(auth.currentUser!.uid, nfcID);
+      const nfcID = userDoc.data()?.nfcID;
+      if (nfcID) await setActiveUser(auth.currentUser!.uid, nfcID);
     }
 
     return { success: true };
   } catch (error: any) {
-    let message = "Não foi possível entrar";
-    if (error.code === "auth/invalid-credential" || error.code === "auth/wrong-password") {
-      message = "Email/Username ou senha incorretos";
-    }
-    return { success: false, error: message };
+    return { success: false, error: "Email/Username ou senha incorretos" };
   }
 };
 
-export const onAuthChange = (callback: (user: User | null) => void) => {
-  return onAuthStateChanged(auth, callback);
-};
-
+// LOGOUT
 export const logoutUser = async () => {
   try {
     const uid = auth.currentUser?.uid;
     await signOut(auth);
     await clearActiveUser(uid || "");
-    console.log("Logout completo + RTDB limpo");
     return { success: true };
   } catch (error) {
     console.error("Erro no logout:", error);
     return { success: false };
   }
+};
+
+// LISTENER DO ESTADO DE AUTENTICAÇÃO
+export const onAuthChange = (callback: (user: User | null) => void) => {
+  return onAuthStateChanged(auth, callback);
 };

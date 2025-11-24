@@ -13,9 +13,25 @@ import {
 import { auth, db } from "../firebase";
 
 // ======================================================
+// Booking Type
+// ======================================================
+export type Booking = {
+  id: string;
+  userId: string;
+  storageId: string;
+  duration: string;
+  startTime: any; // Timestamp | Date
+  endTime: any; // Timestamp | Date
+  expired: boolean;
+  paid: boolean;
+  paymentMethod: string;
+  createdAt: any;
+};
+
+// ======================================================
 // 1️⃣ VERIFICA RESERVA ATIVA
 // ======================================================
-export const getActiveBooking = async () => {
+export const getActiveBooking = async (): Promise<Booking | null> => {
   const user = auth.currentUser;
   if (!user) return null;
 
@@ -29,7 +45,10 @@ export const getActiveBooking = async () => {
 
   if (snap.empty) return null;
 
-  return { id: snap.docs[0].id, ...snap.docs[0].data() };
+  return {
+    id: snap.docs[0].id,
+    ...snap.docs[0].data(),
+  } as Booking;
 };
 
 // ======================================================
@@ -87,9 +106,8 @@ export const expireBooking = async (bookingId: string) => {
 
 // ======================================================
 // 4️⃣ OUVIR RESERVA ATIVA EM TEMPO REAL (OPCIONAL)
-// Ideal para contador decrescente no app
 // ======================================================
-export const listenActiveBooking = (callback: any) => {
+export const listenActiveBooking = (callback: (b: Booking | null) => void) => {
   const user = auth.currentUser;
   if (!user) return null;
 
@@ -103,7 +121,7 @@ export const listenActiveBooking = (callback: any) => {
     if (snapshot.empty) {
       callback(null);
     } else {
-      callback({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() });
+      callback({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Booking);
     }
   });
 };

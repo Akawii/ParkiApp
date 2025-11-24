@@ -2,32 +2,32 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import {
-    EmailAuthProvider,
-    reauthenticateWithCredential,
-    updateEmail,
-    updatePassword
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  updateEmail,
+  updatePassword
 } from "firebase/auth";
 import {
-    collection,
-    doc,
-    getDocs,
-    query,
-    updateDoc,
-    where
+  collection,
+  doc,
+  getDocs,
+  query,
+  updateDoc,
+  where
 } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { auth, db } from "./firebase";
 
