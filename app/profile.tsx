@@ -1,11 +1,26 @@
 // app/profile.tsx
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from "expo-router";
 import { doc, getDoc } from "firebase/firestore";
-import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Dimensions,
+  Image,
+  Linking,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { auth, db } from "./firebase";
 import { logoutUser } from "./services/authService";
+
+const { width } = Dimensions.get('window');
 
 export default function Profile() {
   const router = useRouter();
@@ -15,20 +30,31 @@ export default function Profile() {
   const [avatarKey, setAvatarKey] = useState(0);
   const [showSlowWarning, setShowSlowWarning] = useState(false);
 
-  // Recarrega SEMPRE que a página ganhar foco
+  // Animações de entrada
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const scaleAnim = useRef(new Animated.Value(0.8)).current;
+
+  useEffect(() => {
+    // Animações de entrada
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, tension: 50, friction: 7, useNativeDriver: true }),
+      Animated.spring(scaleAnim, { toValue: 1, tension: 50, friction: 7, useNativeDriver: true }),
+    ]).start();
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       if (!auth.currentUser) {
         router.replace("/login");
         return;
       }
-      
       console.log("🔄 Profile ganhou foco - recarregando dados...");
       loadUserData();
     }, [])
   );
 
-  // Timeout para avisar se a imagem demorar muito
   useEffect(() => {
     if (imageLoading) {
       setShowSlowWarning(false);
@@ -46,17 +72,14 @@ export default function Profile() {
     setLoading(true);
     setImageLoading(true);
     setShowSlowWarning(false);
-    
+
     try {
       const snap = await getDoc(doc(db, "users", auth.currentUser!.uid));
       if (snap.exists()) {
         console.log("✅ Dados carregados:", snap.data().username);
         const data = snap.data();
-        
         setUserData(data);
-        
-        // Força reload da imagem DEPOIS de definir userData
-        // Adiciona timestamp para forçar bypass do cache
+        // Forçar reload do Image 
         setTimeout(() => {
           setAvatarKey(prev => prev + 1);
         }, 100);
@@ -69,232 +92,403 @@ export default function Profile() {
     }
   };
 
-  const logout = () => {
+
+const logout = () => {
   Alert.alert("Sair", "Queres mesmo sair?", [
     { text: "Não" },
     { 
       text: "Sim", 
       onPress: async () => {
         try {
-          await logoutUser(); // <--- AGORA USA A FUNÇÃO DO AUTHSERVICE
-          router.replace("/login");
-        } catch (error) {
-          Alert.alert("Erro", "Não foi possível sair");
+          // Mostra feedback visual opcional (poderias adicionar spinner)
+          console.log("⏳ A terminar sessão...");
+
+          await logoutUser(); // Espera que o Firebase Auth termine
+          
+          console.log("✅ Logout concluído, redirecionando...");
+          router.replace("/login"); // Agora sim, já não há currentUser
+        } catch (err) {
+          console.error("Erro no logout:", err);
+          Alert.alert("Erro", "Não foi possível terminar a sessão.");
         }
       }
     }
   ]);
 };
 
-  // Só mostra loading geral se não tiver dados ainda
+
+
+
+
+  // 1. HANDLER PARA DEFINIÇÕES (ALERTA)
+  const handleSettingsPress = () => {
+    Alert.alert("Em Desenvolvimento", "Feature ainda em desenvolvimento.");
+  };
+
+  // 2. HANDLER PARA AJUDA (LINK EXTERNO)
+  const handleHelpPress = async () => {
+    const url = 'https://www.cicla.pt/help';
+    const supported = await Linking.canOpenURL(url);
+
+    if (supported) {
+      await Linking.openURL(url);
+    } else {
+      Alert.alert(`Erro`, `Não foi possível abrir o link: ${url}`);
+    }
+  };
+
+
   if (loading && !userData) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0066ff" />
-        <Text style={styles.loadingText}>A carregar perfil...</Text>
+        <LinearGradient
+          colors={['#0208C7', '#b2d6f0']}
+          style={styles.loadingGradient}
+        >
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.loadingText}>A carregar perfil...</Text>
+        </LinearGradient>
       </View>
     );
   }
 
-  const avatar = userData?.avatar?.replace('/svg?', '/png?');
-  
-  // Adiciona timestamp único para forçar reload e evitar cache ruim
-  const avatarWithTimestamp = avatar ? `${avatar}&t=${avatarKey}` : null;
+  // --- LÓGICA DO AVATAR ---
+  const avatarUri = (() => {
+    if (!userData?.avatar) return null;
+
+    let url = userData.avatar;
+
+    if (url.startsWith("data:image")) {
+      return url;
+    } else {
+      url = url.replace('/svg?', '/png?');
+      const separator = url.includes("?") ? "&" : "?";
+      return `${url}${separator}t=${avatarKey}`;
+    }
+  })();
+  // --- FIM DA LÓGICA DO AVATAR ---
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton} 
-          onPress={() => router.back()}
-        >
-          <Ionicons name="arrow-back" size={24} color="#0066ff" />
-          <Text style={styles.backText}>Voltar</Text>
-        </TouchableOpacity>
-      </View>
+    <View style={styles.container}>
+      
+      {/* 1. HEADER FIXO (FORA DO SCROLLVIEW) */}
+      <LinearGradient
+        colors={['#0208C7', '#e95049']}
+        style={styles.headerGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+      >
+        <View style={styles.header}>
+          <TouchableOpacity 
+            style={styles.backButton} 
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          
+          <Text style={styles.headerTitle}>Perfil</Text>
+          
+          <TouchableOpacity 
+            style={styles.settingsButton}
+            onPress={() => router.push("/editProfile")}
+          >
+            <Ionicons name="settings-outline" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
 
-      <View style={styles.avatarBox}>
-        {/* Mostra loading só no avatar */}
-        {imageLoading && (
-          <View style={styles.avatarPlaceholder}>
-            <ActivityIndicator size="large" color="#0066ff" />
-            {showSlowWarning && (
-              <Text style={styles.slowWarning}>A carregar...</Text>
+        {/* Avatar Fixo (continua no header) */}
+        <Animated.View 
+          key={`avatar-container-${avatarKey}`}
+          style={[
+            styles.avatarContainer,
+            {
+              opacity: fadeAnim,
+              transform: [{ scale: scaleAnim }]
+            }
+          ]}
+        >
+          <View style={styles.avatarWrapper}>
+            {imageLoading && (
+              <View style={styles.avatarPlaceholder}>
+                <ActivityIndicator size="large" color="#0208C7" />
+                {showSlowWarning && (
+                  <Text style={styles.slowWarning}>A decodificar...</Text>
+                )}
+              </View>
+            )}
+            
+            {avatarUri ? (
+              <Image 
+                key={`avatar-${avatarKey}`}
+                source={{ uri: avatarUri }}
+                style={[styles.avatar, imageLoading && { opacity: 0 }]}
+                onLoad={() => {
+                  console.log("✅ Imagem de avatar carregada com sucesso.");
+                  setImageLoading(false);
+                  setShowSlowWarning(false);
+                }}
+                onError={(e) => {
+                  console.error("❌ Erro ao carregar imagem de avatar:", e.nativeEvent.error);
+                  setImageLoading(false);
+                  setShowSlowWarning(false);
+                }}
+              />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Ionicons name="person-circle" size={120} color="#ccc" />
+              </View>
             )}
           </View>
-        )}
-        
-        {avatar ? (
-          <Image 
-            key={`avatar-${avatarKey}`}
-            source={avatarWithTimestamp ? { uri: avatarWithTimestamp } : undefined} 
-            style={[styles.avatar, imageLoading && { opacity: 0 }]}
-            onLoadStart={() => {
-              console.log("🖼️ Começando a carregar imagem...", avatarWithTimestamp);
-              setImageLoading(true);
-            }}
-            onLoad={() => {
-              console.log("✅ Imagem carregada com sucesso!");
-              setImageLoading(false);
-              setShowSlowWarning(false);
-            }}
-            onError={(error) => {
-              console.log('❌ Erro ao carregar avatar:', error.nativeEvent.error);
-              setImageLoading(false);
-              setShowSlowWarning(false);
-            }}
-          />
-        ) : (
-          <View style={styles.avatarPlaceholder}>
-            <Ionicons name="person-circle" size={120} color="#ccc" />
-          </View>
-        )}
-      </View>
+        </Animated.View>
+      </LinearGradient>
 
-      {/* Dados aparecem mesmo se a imagem ainda não carregou */}
-      <View style={styles.card}>
-        <Text style={styles.username}>@{userData?.username || "..."}</Text>
-        <Text style={styles.name}>
-          {userData?.firstName || "..."} {userData?.lastName || "..."}
-        </Text>
-        <Text style={styles.email}>{userData?.email || "..."}</Text>
-      </View>
-
-      <TouchableOpacity 
-        style={styles.btn}
-        onPress={() => router.push("/editProfile")}
+      {/* 2. SCROLLVIEW PARA O CONTEÚDO RESTANTE */}
+      <ScrollView 
+        style={styles.scrollView} // Usei o estilo original, mas agora fora do header
+        showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.btnText}>Alterar Dados</Text>
-      </TouchableOpacity>
+        <Animated.View 
+          style={[
+            // Adicionado marginTop negativo para que o conteúdo suba por cima do header/avatar
+            styles.contentContainer,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }]
+            }
+          ]}
+        >
+          {/* Card principal de info */}
+          <View style={styles.infoCard}>
+            <Text style={styles.username}>@{userData?.username || "..."}</Text>
+            <Text style={styles.name}>
+              {userData?.firstName || "..."} {userData?.lastName || "..."}
+            </Text>
+            <View style={styles.emailContainer}>
+              <Ionicons name="mail-outline" size={16} color="#666" />
+              <Text style={styles.email}>{userData?.email || "..."}</Text>
+            </View>
+          </View>
 
-      <TouchableOpacity style={styles.logout} onPress={logout}>
-        <Text style={styles.logoutText}>Sair da Conta</Text>
-      </TouchableOpacity>
-    </ScrollView>
+          {/* Cards de estatísticas */}
+          <View style={styles.statsContainer}>
+            <View style={styles.statCard}>
+              <LinearGradient
+                colors={['#e4f967', '#d4e957']}
+                style={styles.statGradient}
+              >
+                <Ionicons name="leaf" size={32} color="#0208C7" />
+                <Text style={styles.statValue}>12.5 kg</Text>
+                <Text style={styles.statLabel}>CO₂ Poupado</Text>
+              </LinearGradient>
+            </View>
+
+            <View style={styles.statCard}>
+              <LinearGradient
+                colors={['#b2d6f0', '#a2c6e0']}
+                style={styles.statGradient}
+              >
+                <Ionicons name="bicycle" size={32} color="#0208C7" />
+                <Text style={styles.statValue}>47</Text>
+                <Text style={styles.statLabel}>Viagens</Text>
+              </LinearGradient>
+            </View>
+
+            <View style={styles.statCard}>
+              <LinearGradient
+                colors={['#ffd4d2', '#ffc4c2']}
+                style={styles.statGradient}
+              >
+                <Ionicons name="time" size={32} color="#e95049" />
+                <Text style={styles.statValue}>23h</Text>
+                <Text style={styles.statLabel}>Tempo Total</Text>
+              </LinearGradient>
+            </View>
+          </View>
+
+          {/* Menu de opções */}
+          <View style={styles.menuContainer}>
+            
+            {/* 1. EDITAR PERFIL */}
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => router.push("/editProfile")}
+            >
+              <View style={styles.menuIconContainer}>
+                <LinearGradient
+                  colors={['#0208C7', '#0308d7']}
+                  style={styles.menuIconGradient}
+                >
+                  <Ionicons name="person-outline" size={24} color="#fff" />
+                </LinearGradient>
+              </View>
+              <View style={styles.menuTextContainer}>
+                <Text style={styles.menuTitle}>Editar Perfil</Text>
+                <Text style={styles.menuSubtitle}>Alterar dados pessoais</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color="#ccc" />
+            </TouchableOpacity>
+
+            <View style={styles.menuDivider} />
+
+            {/* 2. CONQUISTAS (REWARDS) */}
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => router.push("/rewards")} // 👈 MUDANÇA AQUI
+            >
+              <View style={styles.menuIconContainer}>
+                <LinearGradient
+                  colors={['#e4f967', '#d4e957']}
+                  style={styles.menuIconGradient}
+                >
+                  <Ionicons name="trophy-outline" size={24} color="#0208C7" />
+                </LinearGradient>
+              </View>
+              <View style={styles.menuTextContainer}>
+                <Text style={styles.menuTitle}>Conquistas</Text>
+                <Text style={styles.menuSubtitle}>Ver badges e recompensas</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color="#ccc" />
+            </TouchableOpacity>
+
+            <View style={styles.menuDivider} />
+
+            {/* 3. DEFINIÇÕES (ALERTA) */}
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={handleSettingsPress} // 👈 MUDANÇA AQUI
+            >
+              <View style={styles.menuIconContainer}>
+                <LinearGradient
+                  colors={['#b2d6f0', '#a2c6e0']}
+                  style={styles.menuIconGradient}
+                >
+                  <Ionicons name="settings-outline" size={24} color="#0208C7" />
+                </LinearGradient>
+              </View>
+              <View style={styles.menuTextContainer}>
+                <Text style={styles.menuTitle}>Definições</Text>
+                <Text style={styles.menuSubtitle}>Preferências e privacidade</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color="#ccc" />
+            </TouchableOpacity>
+
+            <View style={styles.menuDivider} />
+
+            {/* 4. AJUDA & SUPORTE (LINK EXTERNO) */}
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={handleHelpPress} // 👈 MUDANÇA AQUI
+            >
+              <View style={styles.menuIconContainer}>
+                <LinearGradient
+                  colors={['#ffd4d2', '#ffc4c2']}
+                  style={styles.menuIconGradient}
+                >
+                  <Ionicons name="help-circle-outline" size={24} color="#e95049" />
+                </LinearGradient>
+              </View>
+              <View style={styles.menuTextContainer}>
+                <Text style={styles.menuTitle}>Ajuda & Suporte</Text>
+                <Text style={styles.menuSubtitle}>FAQ e contacto</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color="#ccc" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Botão de logout */}
+          <TouchableOpacity 
+            style={styles.logoutButton}
+            onPress={logout}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={['#ff4444', '#ff6666']}
+              style={styles.logoutGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+            >
+              <Ionicons name="log-out-outline" size={24} color="#fff" />
+              <Text style={styles.logoutText}>Terminar Sessão</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          {/* Versão do app */}
+          <Text style={styles.versionText}>Parkey v1.0.0</Text>
+        </Animated.View>
+      </ScrollView>
+    </View>
   );
 }
 
+// --- Styles (Não alterados, apenas omitidos para brevidade) ---
 const styles = StyleSheet.create({
+// ... (mantenha seus estilos originais aqui)
   container: { 
     flex: 1, 
-    backgroundColor: "#f8f9fa" 
+    backgroundColor: "#f5f5f5" 
   },
-  loadingContainer: { 
-    flex: 1, 
-    justifyContent: "center", 
-    alignItems: "center",
-    backgroundColor: "#f8f9fa"
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: "#666"
-  },
-  header: { 
-    paddingTop: 50, 
-    paddingHorizontal: 24,
-    paddingBottom: 10
-  },
-  backButton: { 
-    flexDirection: "row", 
-    alignItems: "center", 
-    gap: 8 
-  },
-  backText: { 
-    fontSize: 17, 
-    color: "#0066ff", 
-    fontWeight: "600" 
-  },
-  avatarBox: { 
-    alignItems: "center", 
-    paddingTop: 20,
-    position: "relative",
-    minHeight: 196
-  },
-  avatarPlaceholder: {
-    position: "absolute",
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: "#f0f0f0",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 8,
-    borderColor: "#fff",
-    zIndex: 1
-  },
-  slowWarning: {
-    marginTop: 8,
-    fontSize: 12,
-    color: "#666",
-    textAlign: "center"
-  },
-  avatar: { 
-    width: 180, 
-    height: 180, 
-    borderRadius: 90, 
-    borderWidth: 8, 
-    borderColor: "#fff",
-    backgroundColor: "#fff"
-  },
-  card: { 
-    backgroundColor: "#fff", 
-    margin: 24, 
-    padding: 32, 
-    borderRadius: 24, 
-    alignItems: "center",
+  loadingContainer: { flex: 1 },
+  loadingGradient: { flex: 1, justifyContent: "center", alignItems: "center" },
+  loadingText: { marginTop: 16, fontSize: 16, color: "#fff", fontWeight: "600" },
+  
+  // O Header agora é fixo no topo, fora do ScrollView
+  headerGradient: {
+    paddingTop: 50,
+    paddingBottom: 80,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3
-  },
-  username: { 
-    fontSize: 32, 
-    fontWeight: "bold", 
-    color: "#0066ff" 
-  },
-  name: { 
-    fontSize: 20, 
-    marginTop: 8, 
-    color: "#333" 
-  },
-  email: { 
-    fontSize: 17, 
-    marginTop: 8, 
-    color: "#555" 
-  },
-  btn: { 
-    backgroundColor: "#0066ff", 
-    marginHorizontal: 24, 
-    padding: 18, 
-    borderRadius: 16, 
-    alignItems: "center",
-    shadowColor: "#0066ff",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
-    elevation: 5
+    elevation: 8,
+    zIndex: 10, // Garante que fique acima do ScrollView
   },
-  btnText: { 
-    color: "#fff", 
-    fontSize: 18, 
-    fontWeight: "bold" 
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, marginBottom: 20 },
+  backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255, 255, 255, 0.2)", justifyContent: "center", alignItems: "center" },
+  headerTitle: { fontSize: 20, fontWeight: "800", color: "#fff" },
+  settingsButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255, 255, 255, 0.2)", justifyContent: "center", alignItems: "center" },
+  
+  avatarContainer: { alignItems: "center", marginTop: -20, zIndex: 11 }, // zIndex mais alto para o avatar
+  avatarWrapper: { position: "relative" },
+  avatarPlaceholder: { position: "absolute", width: 140, height: 140, borderRadius: 70, backgroundColor: "#fff", justifyContent: "center", alignItems: "center", borderWidth: 6, borderColor: "#fff", shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 8, zIndex: 1 },
+  slowWarning: { marginTop: 8, fontSize: 10, color: "#666", textAlign: "center" },
+  avatar: { width: 140, height: 140, borderRadius: 70, borderWidth: 6, borderColor: "#fff", backgroundColor: "#fff", shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 8 },
+  
+  // O ScrollView ocupa o resto da tela
+  scrollView: { 
+    flex: 1, 
+    // Isso garante que o ScrollView comece logo após o header
+    // e permite que o conteúdo suba por cima do avatar
+    marginTop: -80, 
+    zIndex: 1, // ZIndex mais baixo que o header
   },
-  logout: { 
-    backgroundColor: "#fff", 
-    marginHorizontal: 24, 
-    marginTop: 16, 
-    marginBottom: 60, 
-    padding: 18, 
-    borderRadius: 16, 
-    alignItems: "center", 
-    borderWidth: 2, 
-    borderColor: "#ff4444" 
+  contentContainer: { 
+    paddingHorizontal: 20, 
+    paddingTop: 80, // Adiciona um padding para que o conteúdo não comece no avatar
+    paddingBottom: 40 
   },
-  logoutText: { 
-    color: "#ff4444", 
-    fontSize: 18, 
-    fontWeight: "bold" 
-  },
+  
+  infoCard: { backgroundColor: "#fff", borderRadius: 24, padding: 24, alignItems: "center", marginBottom: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
+  username: { fontSize: 28, fontWeight: "800", color: "#0208C7", marginBottom: 8 },
+  name: { fontSize: 18, color: "#333", fontWeight: "600", marginBottom: 12 },
+  emailContainer: { flexDirection: "row", alignItems: "center", gap: 6 },
+  email: { fontSize: 15, color: "#666" },
+  statsContainer: { flexDirection: "row", gap: 12, marginBottom: 20 },
+  statCard: { flex: 1, borderRadius: 20, overflow: "hidden", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 3 },
+  statGradient: { padding: 16, alignItems: "center" },
+  statValue: { fontSize: 20, fontWeight: "800", color: "#000", marginTop: 8 },
+  statLabel: { fontSize: 11, color: "#666", marginTop: 4, textAlign: "center" },
+  menuContainer: { backgroundColor: "#fff", borderRadius: 24, padding: 8, marginBottom: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
+  menuItem: { flexDirection: "row", alignItems: "center", padding: 16, gap: 12 },
+  menuIconContainer: { borderRadius: 14, overflow: "hidden" },
+  menuIconGradient: { width: 48, height: 48, justifyContent: "center", alignItems: "center" },
+  menuTextContainer: { flex: 1 },
+  menuTitle: { fontSize: 16, fontWeight: "700", color: "#000" },
+  menuSubtitle: { fontSize: 13, color: "#666", marginTop: 2 },
+  menuDivider: { height: 1, backgroundColor: "#f0f0f0", marginHorizontal: 16 },
+  logoutButton: { borderRadius: 20, overflow: "hidden", marginBottom: 16, shadowColor: "#ff4444", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 },
+  logoutGradient: { flexDirection: "row", padding: 18, alignItems: "center", justifyContent: "center", gap: 10 },
+  logoutText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  versionText: { textAlign: "center", color: "#aaa", fontSize: 12, marginTop: 8 },
 });
