@@ -16,6 +16,7 @@ const { width, height } = Dimensions.get("window");
 
 export default function Park() {
   const [isUnlocking, setIsUnlocking] = useState(false);
+  const [doorOpen, setDoorOpen] = useState(false);
   const router = useRouter();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -25,7 +26,6 @@ export default function Park() {
   const rotateAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Animações de entrada
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -46,7 +46,6 @@ export default function Park() {
       }),
     ]).start();
 
-    // Pulse contínuo no botão
     Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, {
@@ -63,7 +62,6 @@ export default function Park() {
     ).start();
   }, []);
 
-  // Animação de rotação quando está a desbloquear
   useEffect(() => {
     if (isUnlocking) {
       Animated.loop(
@@ -78,29 +76,56 @@ export default function Park() {
     }
   }, [isUnlocking]);
 
+  // -------------------------
+  // OPEN DOOR
+  // -------------------------
   const unlockDoor = async () => {
     if (isUnlocking) return;
     setIsUnlocking(true);
 
     try {
-      const response = await fetch("http://192.168.137.165/unlock", {
+      const response = await fetch("http://192.168.137.110/unlock", {
         method: "POST",
       });
 
-      if (response.ok) {
+      const text = await response.text();
+      console.log("ESP32:", text);
+
+      if (text.includes("Locker Occupied")) {
+        setIsUnlocking(false);
+
         Alert.alert(
-          "Sucesso! 🎉",
-          "O cacifo abriu. Deposita o teu bem e fecha a porta.",
-          [{ text: "OK", style: "default" }]
-        );
-      } else {
-        Alert.alert(
-          "Erro ⚠️",
-          "Não foi possível abrir o cacifo. Tenta novamente.",
+          "Cacifo Ocupado ❌",
+          "Não é possível abrir porque já está a ser utilizado.",
           [{ text: "OK", style: "cancel" }]
         );
+
+        return;
       }
-    } catch {
+
+      if (text.includes("Locker Opening")) {
+        setDoorOpen(true);
+
+        Alert.alert(
+          "Sucesso! 🎉",
+          "O cacifo abriu. Deposita o teu bem e fecha a porta quando terminares.",
+          [
+            { 
+              text: "OK", 
+              style: "default",
+              onPress: () => {
+                // Auto-close after 30 seconds if user forgets
+                setTimeout(() => {
+                  setDoorOpen(false);
+                }, 30000);
+              }
+            }
+          ]
+        );
+      }
+
+    } catch (error) {
+      console.error("Unlock error:", error);
       Alert.alert(
         "Erro de Conexão 📡",
         "Verifica a ligação à internet e a proximidade do cacifo.",
@@ -111,46 +136,83 @@ export default function Park() {
     }
   };
 
+  // -------------------------
+  // CLOSE DOOR
+  // -------------------------
+  const closeDoor = async () => {
+    if (isUnlocking) return;
+    setIsUnlocking(true);
+
+    try {
+      const response = await fetch("http://192.168.137.110/close", {
+        method: "POST",
+      });
+
+      const text = await response.text();
+      console.log("ESP32 Close:", text);
+
+      if (response.ok && text.includes("Locker Closed")) {
+        setDoorOpen(false);
+        Alert.alert(
+          "Fechado 🔒", 
+          "O cacifo foi fechado com sucesso.",
+          [{ text: "OK", style: "default" }]
+        );
+      } else {
+        Alert.alert(
+          "Erro ⚠️", 
+          "Não foi possível fechar o cacifo. Tenta novamente.",
+          [{ text: "OK", style: "cancel" }]
+        );
+      }
+    } catch (error) {
+      console.error("Close error:", error);
+      Alert.alert(
+        "Erro de Conexão 📡", 
+        "Verifica a ligação à internet.",
+        [{ text: "OK", style: "cancel" }]
+      );
+    } finally {
+      setTimeout(() => setIsUnlocking(false), 3000);
+    }
+  };
+
   const spin = rotateAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
+    outputRange: ["0deg", "360deg"],
   });
 
   return (
     <View style={styles.container}>
-      {/* Background Gradient Dinâmico */}
       <LinearGradient
         colors={
           isUnlocking
-            ? ['#FF9800', '#FFB74D', '#FFA726']
-            : ['#0208C7', '#1a1fc9', '#e95049']
+            ? ["#FF9800", "#FFB74D", "#FFA726"]
+            : doorOpen
+            ? ["#1a1fc9", "#0208C7", "#0208C7"]
+            : ["#0208C7", "#1a1fc9", "#e95049"]
         }
         style={styles.backgroundGradient}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       />
 
-      {/* Círculos decorativos */}
-      <Animated.View 
+      <Animated.View
         style={[
           styles.decorCircle1,
-          { opacity: fadeAnim, transform: [{ scale: pulseAnim }] }
-        ]} 
+          { opacity: fadeAnim, transform: [{ scale: pulseAnim }] },
+        ]}
       />
-      <Animated.View 
-        style={[
-          styles.decorCircle2,
-          { opacity: fadeAnim }
-        ]} 
+      <Animated.View
+        style={[styles.decorCircle2, { opacity: fadeAnim }]}
       />
 
-      {/* Header */}
       <Animated.View
         style={[
           styles.header,
-          { 
-            opacity: fadeAnim, 
-            transform: [{ translateY: slideAnim }, { scale: scaleAnim }] 
+          {
+            opacity: fadeAnim,
+            transform: [{ translateY: slideAnim }, { scale: scaleAnim }],
           },
         ]}
       >
@@ -164,55 +226,79 @@ export default function Park() {
 
         <View style={styles.headerContent}>
           <Text style={styles.headerEmoji}>
-            {isUnlocking ? "⚡" : "🔓"}
+            {isUnlocking ? "⚡" : doorOpen ? "🔓" : "🔒"}
           </Text>
+
           <Text style={styles.headerTitle}>
-            {isUnlocking ? "A Desbloquear..." : "Unlock Imediato"}
+            {isUnlocking
+              ? "A Desbloquear..."
+              : doorOpen
+              ? "Cacifo Aberto"
+              : "Unlock Imediato"}
           </Text>
+
           <Text style={styles.headerSubtitle}>
             {isUnlocking
               ? "A estabelecer ligação segura"
+              : doorOpen
+              ? "Fecha o cacifo quando terminares"
               : "Abre o teu cacifo por aproximação"}
           </Text>
         </View>
       </Animated.View>
 
-      {/* Main Card */}
-      <Animated.View 
+      <Animated.View
         style={[
-          styles.mainCard, 
-          { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }
+          styles.mainCard,
+          { opacity: fadeAnim, transform: [{ scale: scaleAnim }] },
         ]}
       >
         <LinearGradient
-          colors={['#ffffff', '#f8f9fa']}
+          colors={["#ffffff", "#f8f9fa"]}
           style={styles.cardGradient}
         >
-          {/* Status Badge */}
           <View style={styles.statusBadge}>
-            <View style={[
-              styles.statusDot,
-              { backgroundColor: isUnlocking ? '#FF9800' : '#4CAF50' }
-            ]} />
+            <View
+              style={[
+                styles.statusDot,
+                {
+                  backgroundColor: isUnlocking
+                    ? "#FF9800"
+                    : doorOpen
+                    ? "#1a1fc9"
+                    : "#4CAF50",
+                },
+              ]}
+            />
             <Text style={styles.statusBadgeText}>
-              {isUnlocking ? "PROCESSANDO" : "PRONTO"}
+              {isUnlocking
+                ? "PROCESSANDO"
+                : doorOpen
+                ? "ABERTO"
+                : "PRONTO"}
             </Text>
           </View>
 
           <Text style={styles.cardTitle}>
-            {isUnlocking ? "Aguarda um momento" : "Pronto para Estacionar"}
+            {isUnlocking
+              ? "Aguarda um momento"
+              : doorOpen
+              ? "Cacifo Aberto"
+              : "Pronto para Estacionar"}
           </Text>
 
           <Text style={styles.cardSubtitle}>
             {isUnlocking
-              ? "Estabelecendo ligação segura e enviando comando de desbloqueio..."
-              : "Certifica-te que estás em frente ao cacifo e prime o botão para abrir."}
+              ? "Estabelecendo ligação segura..."
+              : doorOpen
+              ? "Fecha o cacifo quando terminares."
+              : "Certifica-te que estás em frente ao cacifo e prime o botão."}
           </Text>
 
-          {/* Botão de Unlock Gigante */}
+          {/* BUTTON */}
           <TouchableOpacity
             style={styles.unlockButtonWrapper}
-            onPress={unlockDoor}
+            onPress={doorOpen ? closeDoor : unlockDoor}
             disabled={isUnlocking}
             activeOpacity={0.9}
           >
@@ -220,18 +306,25 @@ export default function Park() {
               <LinearGradient
                 colors={
                   isUnlocking
-                    ? ['#FF9800', '#FFB74D']
-                    : ['#e95049', '#ff6b63']
+                    ? ["#FF9800", "#FFB74D"]
+                    : doorOpen
+                    ? ["#1a1fc9", "#0208C7"]
+                    : ["#e95049", "#ff6b63"]
                 }
                 style={styles.unlockGradient}
               >
-                {/* Anel exterior pulsante */}
                 <View style={styles.outerRing} />
-                
+
                 {isUnlocking ? (
                   <Animated.View style={{ transform: [{ rotate: spin }] }}>
                     <Ionicons name="sync" size={56} color="#fff" />
                   </Animated.View>
+                ) : doorOpen ? (
+                  <View style={styles.unlockContent}>
+                    <Ionicons name="lock-closed" size={56} color="#fff" />
+                    <Text style={styles.unlockButtonText}>FECHAR</Text>
+                    <Text style={styles.unlockButtonSubtext}>TOCA AQUI</Text>
+                  </View>
                 ) : (
                   <View style={styles.unlockContent}>
                     <Ionicons name="lock-open" size={56} color="#fff" />
@@ -243,55 +336,103 @@ export default function Park() {
             </Animated.View>
           </TouchableOpacity>
 
-          {/* Features Grid */}
           <View style={styles.featuresGrid}>
             <View style={styles.featureItem}>
-              <View style={[styles.featureIcon, { backgroundColor: '#e4f967' }]}>
-                <Ionicons name="shield-checkmark" size={20} color="#0208C7" />
+              <View
+                style={[
+                  styles.featureIcon,
+                  { backgroundColor: "#e4f967" },
+                ]}
+              >
+                <Ionicons
+                  name="shield-checkmark"
+                  size={20}
+                  color="#0208C7"
+                />
               </View>
               <Text style={styles.featureLabel}>Seguro</Text>
             </View>
 
             <View style={styles.featureItem}>
-              <View style={[styles.featureIcon, { backgroundColor: '#b2d6f0' }]}>
+              <View
+                style={[
+                  styles.featureIcon,
+                  { backgroundColor: "#b2d6f0" },
+                ]}
+              >
                 <Ionicons name="flash" size={20} color="#0208C7" />
               </View>
               <Text style={styles.featureLabel}>Instantâneo</Text>
             </View>
 
             <View style={styles.featureItem}>
-              <View style={[styles.featureIcon, { backgroundColor: '#ffcdd2' }]}>
+              <View
+                style={[
+                  styles.featureIcon,
+                  { backgroundColor: "#ffcdd2" },
+                ]}
+              >
                 <Ionicons name="wifi" size={20} color="#e95049" />
               </View>
               <Text style={styles.featureLabel}>ESP32</Text>
             </View>
           </View>
 
-          {/* Status Row */}
-          <View style={[
-            styles.statusRow,
-            { backgroundColor: isUnlocking ? '#FFF3E0' : '#E8F5E9' }
-          ]}>
+          <View
+            style={[
+              styles.statusRow,
+              {
+                backgroundColor: isUnlocking
+                  ? "#FFF3E0"
+                  : doorOpen
+                  ? "#E3F2FD"
+                  : "#E8F5E9",
+              },
+            ]}
+          >
             <Ionicons
-              name={isUnlocking ? "hourglass" : "checkmark-circle"}
+              name={
+                isUnlocking
+                  ? "hourglass"
+                  : doorOpen
+                  ? "alert-circle"
+                  : "checkmark-circle"
+              }
               size={22}
-              color={isUnlocking ? '#FF9800' : '#4CAF50'}
+              color={
+                isUnlocking
+                  ? "#FF9800"
+                  : doorOpen
+                  ? "#1a1fc9"
+                  : "#4CAF50"
+              }
             />
             <Text
               style={[
                 styles.statusText,
-                { color: isUnlocking ? '#FF9800' : '#4CAF50' },
+                {
+                  color: isUnlocking
+                    ? "#FF9800"
+                    : doorOpen
+                    ? "#1a1fc9"
+                    : "#4CAF50",
+                },
               ]}
             >
               {isUnlocking
                 ? "Comunicação em curso..."
+                : doorOpen
+                ? "Cacifo aberto - Não te esqueças de fechar!"
                 : "Sistema pronto, pode abrir"}
             </Text>
           </View>
 
-          {/* Info Footer */}
           <View style={styles.infoFooter}>
-            <Ionicons name="information-circle-outline" size={16} color="#999" />
+            <Ionicons
+              name="information-circle-outline"
+              size={16}
+              color="#999"
+            />
             <Text style={styles.infoText}>
               Mantém-te a menos de 5m do cacifo
             </Text>
@@ -299,13 +440,9 @@ export default function Park() {
         </LinearGradient>
       </Animated.View>
 
-      {/* Bottom Tips */}
-      {!isUnlocking && (
-        <Animated.View 
-          style={[
-            styles.tipsContainer,
-            { opacity: fadeAnim }
-          ]}
+      {!isUnlocking && !doorOpen && (
+        <Animated.View
+          style={[styles.tipsContainer, { opacity: fadeAnim }]}
         >
           <View style={styles.tipCard}>
             <Ionicons name="bulb" size={18} color="#e4f967" />
@@ -334,34 +471,34 @@ const styles = StyleSheet.create({
   },
 
   decorCircle1: {
-    position: 'absolute',
+    position: "absolute",
     top: -100,
     right: -100,
     width: 300,
     height: 300,
     borderRadius: 150,
-    backgroundColor: 'rgba(228, 249, 103, 0.1)',
+    backgroundColor: "rgba(228, 249, 103, 0.1)",
   },
 
   decorCircle2: {
-    position: 'absolute',
+    position: "absolute",
     bottom: -150,
     left: -100,
     width: 350,
     height: 350,
     borderRadius: 175,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
   },
 
   header: {
     paddingTop: 60,
     paddingHorizontal: 24,
     paddingBottom: 30,
-    alignItems: 'center',
+    alignItems: "center",
   },
 
   backButton: {
-    position: 'absolute',
+    position: "absolute",
     top: 60,
     left: 24,
     width: 45,
@@ -378,7 +515,7 @@ const styles = StyleSheet.create({
   },
 
   headerContent: {
-    alignItems: 'center',
+    alignItems: "center",
     gap: 8,
   },
 
@@ -392,14 +529,14 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: "#fff",
     letterSpacing: -0.5,
-    textAlign: 'center',
+    textAlign: "center",
   },
 
   headerSubtitle: {
     fontSize: 15,
     color: "rgba(255,255,255,0.9)",
     textAlign: "center",
-    fontWeight: '500',
+    fontWeight: "500",
     paddingHorizontal: 20,
   },
 
@@ -407,7 +544,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 5,
     borderRadius: 28,
-    overflow: 'hidden',
+    overflow: "hidden",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.3,
@@ -422,10 +559,10 @@ const styles = StyleSheet.create({
   },
 
   statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
-    backgroundColor: 'rgba(2, 8, 199, 0.08)',
+    backgroundColor: "rgba(2, 8, 199, 0.08)",
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
@@ -440,8 +577,8 @@ const styles = StyleSheet.create({
 
   statusBadgeText: {
     fontSize: 11,
-    fontWeight: '900',
-    color: '#0208C7',
+    fontWeight: "900",
+    color: "#0208C7",
     letterSpacing: 1,
   },
 
@@ -450,7 +587,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: "#000",
     marginBottom: 8,
-    textAlign: 'center',
+    textAlign: "center",
     letterSpacing: -0.5,
   },
 
@@ -461,7 +598,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     paddingHorizontal: 10,
     marginBottom: 32,
-    fontWeight: '500',
+    fontWeight: "500",
   },
 
   unlockButtonWrapper: {
@@ -479,20 +616,20 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.5,
     shadowRadius: 20,
     elevation: 20,
-    position: 'relative',
+    position: "relative",
   },
 
   outerRing: {
-    position: 'absolute',
+    position: "absolute",
     width: 240,
     height: 240,
     borderRadius: 120,
     borderWidth: 3,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: "rgba(255, 255, 255, 0.3)",
   },
 
   unlockContent: {
-    alignItems: 'center',
+    alignItems: "center",
     gap: 8,
   },
 
@@ -511,13 +648,13 @@ const styles = StyleSheet.create({
   },
 
   featuresGrid: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 16,
     marginBottom: 24,
   },
 
   featureItem: {
-    alignItems: 'center',
+    alignItems: "center",
     gap: 8,
   },
 
@@ -525,14 +662,14 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   featureLabel: {
     fontSize: 11,
-    fontWeight: '700',
-    color: '#666',
+    fontWeight: "700",
+    color: "#666",
   },
 
   statusRow: {
@@ -542,7 +679,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderRadius: 16,
-    width: '100%',
+    width: "100%",
   },
 
   statusText: {
@@ -552,12 +689,12 @@ const styles = StyleSheet.create({
   },
 
   infoFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
     marginTop: 16,
   },
-
+  
   infoText: {
     fontSize: 12,
     color: '#999',

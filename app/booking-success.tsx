@@ -91,7 +91,7 @@ export default function BookingSuccess() {
             // 🚨 MUDANÇA AQUI: Para debug de 10 segundos, forçamos a duração mínima.
             // Quando terminar o debug, você deve usar:
             // duration: parseInt(params.duration as string) || 2, 
-            duration: debugDuration, // Usa 0.166... minutos (10 segundos)
+            duration: 3, // Usa 0.166... minutos (10 segundos)
             price: parseFloat(params.price as string) || 0.50,  
             // Usa o número do cacifo definido acima (parâmetro ou '05')
             lockerNumber: lockerNumber.padStart(2, '0'), 
